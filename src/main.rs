@@ -50,25 +50,22 @@ struct QvdFieldHeader {
 
 fn main() {
     let mut xml_string = String::new();
-    let mystr = String::from("sam");
     let source: &mut String = match env::args().nth(1) {
         Some(file_name) => {
             // File hosts must exist in current path before this produces output
-            if let Ok(mut reader) = read_lines(file_name) {
+            if let Ok(mut reader) = read_file(file_name) {
                 // Consumes the iterator, returns an (Optional) String
                 loop {
-                    let mut buffer = [0; 1000];
-                    reader.read(&mut buffer[..]).unwrap();
+                    let mut buffer = [0;100];
+                    reader.read_exact(&mut buffer).unwrap();
                     let buf_contents = match str::from_utf8(&buffer) {
                         Ok(s) => s,
                         Err(_) => "",
                     };
-                    //println!("{}", buf_contents);
+                    println!("{}", buf_contents);
                     match buf_contents.find("</QvdTableHeader>") {
                         Some(offset) => {
-                            println!("Offset: {}", offset);
-                            let upto_end_element = &buf_contents[0..5 + "</QvdTableHeader>".len()];
-                            println!("{}", upto_end_element);
+                            let upto_end_element = &buf_contents[0..offset + "</QvdTableHeader>".len()];
                             xml_string.push_str(upto_end_element);
                             break;
                         }
@@ -80,17 +77,9 @@ fn main() {
         }
         None => &mut xml_string,
     };
-    println!("xml-string {}", source);
-    let mut file = File::open("nice.xml").unwrap();
-    let mut buf = String::new();
-    file.read_to_string(&mut buf);
-    let table_header: QvdTableHeader = from_str(&buf).unwrap();
-
-    //let table_header: QvdTableHeader = from_str(&source).unwrap();
+    let binary_section_offset = source.as_bytes().len();
+    let table_header: QvdTableHeader = from_str(&source).unwrap();
     //println!("{:?}", table_header);
-    //println!("{}", table_header.fields.headers.len());
-    println!("xml-string-len {}", xml_string.len());
-    println!("xml-string-cap {}", xml_string.capacity());
     match env::args().nth(1) {
         Some(file_name) => {
             if let Ok(mut f) = File::open(file_name) {
@@ -114,7 +103,7 @@ fn main() {
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
-fn read_lines<P>(filename: P) -> io::Result<io::BufReader<File>>
+fn read_file<P>(filename: P) -> io::Result<io::BufReader<File>>
 where
     P: AsRef<Path>,
 {
