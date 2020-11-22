@@ -1,4 +1,4 @@
-#![feature(seek_convenience)]
+//#![feature(seek_convenience)]
 #![allow(unused_imports)]
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use bit_vec::BitVec;
@@ -44,7 +44,7 @@ fn main() {
                 field_header.field_name.clone(),
                 get_symbols(&buf, &field_header),
             );
-            //get_rows(&buf, &field_header)
+            get_rows(&buf, &field_header, &qvd_structure)
         }
     }
     // println!("{:?}", symbol_map);
@@ -67,10 +67,18 @@ fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> Symbol {
     }
 }
 
-// fn get_rows(buf: &[u8], field: &QvdFieldHeader, qvd_structure: &QvdTableHeader) -> Symbol {
-//     let start = qvd_structure.offset + field.bit_offset;
-//     let end = start + field.bit_width;
-// }
+fn get_rows(buf: &[u8], field: &QvdFieldHeader, qvd: &QvdTableHeader) {
+    let start = qvd.offset;
+    let end = buf.len();
+    let rows_section = &buf[start..end];
+
+    let chunks = buf.chunks(qvd.record_byte_size);
+
+    for chunk in chunks {
+        let bits = BitVec::from_bytes(chunk);
+        println!("bits - {:?}", bits);
+    }        
+}
 
 fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
     match read_file(&file_name) {
@@ -226,10 +234,15 @@ mod tests {
         let mut v: Vec<u8> = Vec::new();
         for val in y {
             match val {
-                True => v.push(1),
-                False => v.push(0)
+                true => v.push(1),
+                false => v.push(0)
             }
         }
-        println!("{:?}", v);
+
+        let mut iter = v.chunks(16);
+        for chunk in iter {
+            println!("{:?}", chunk);
+        }
+        
     }
 }

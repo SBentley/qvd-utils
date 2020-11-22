@@ -12,7 +12,7 @@ pub struct QvdTableHeader {
     #[serde(rename = "NoOfRecords")]
     pub no_of_records: u32,
     #[serde(rename = "RecordByteSize")]
-    pub record_byte_size: u32,
+    pub record_byte_size: usize,
     #[serde(rename = "Offset")]
     pub offset: usize,
     #[serde(rename = "Length")]
