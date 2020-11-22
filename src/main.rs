@@ -1,6 +1,7 @@
 #![feature(seek_convenience)]
 #![allow(unused_imports)]
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use bit_vec::BitVec;
 use quick_xml::de::{from_str, DeError};
 use qvd_structure::{Fields, QvdFieldHeader, QvdTableHeader, Symbol};
 use serde::Deserialize;
@@ -66,10 +67,9 @@ fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> Symbol {
     }
 }
 
-
 // fn get_rows(buf: &[u8], field: &QvdFieldHeader, qvd_structure: &QvdTableHeader) -> Symbol {
 //     let start = qvd_structure.offset + field.bit_offset;
-//     let end = start + field.bit_width;    
+//     let end = start + field.bit_width;
 // }
 
 fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
@@ -220,9 +220,16 @@ mod tests {
     }
 
     #[test]
-    fn write() {
-        let mut wtr = vec![];
-        wtr.write_f64::<LittleEndian>(64 as f64).unwrap();
-        println!("vec - {:?}", wtr);
+    fn test_bit_vec() {
+        let x = [0x00,0x00,0x00,0x11,0x01,0x22,0x02,0x33,0x13,0x34,0x14,0x35];
+        let y = bit_vec::BitVec::from_bytes(&x);
+        let mut v: Vec<u8> = Vec::new();
+        for val in y {
+            match val {
+                True => v.push(1),
+                False => v.push(0)
+            }
+        }
+        println!("{:?}", v);
     }
 }
