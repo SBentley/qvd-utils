@@ -1,7 +1,6 @@
-//#![feature(seek_convenience)]
 #![allow(unused_imports)]
+use bitvec::prelude::*;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
-use bit_vec::BitVec;
 use quick_xml::de::{from_str, DeError};
 use qvd_structure::{Fields, QvdFieldHeader, QvdTableHeader, Symbol};
 use serde::Deserialize;
@@ -16,7 +15,6 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, fs::File};
 use std::{env, fs};
-
 pub mod qvd_structure;
 
 fn main() {
@@ -30,7 +28,7 @@ fn main() {
 
     let qvd_structure: QvdTableHeader = from_str(&xml).unwrap();
     let mut symbol_map: HashMap<String, Symbol> = HashMap::new();
-    let mut rows: HashMap<String, Symbol> = HashMap::new();
+    let mut rows: HashMap<String , Symbol> = HashMap::new();
 
     if let Ok(mut f) = File::open(&file_name) {
         // Seek to the end of the XML section
@@ -38,17 +36,55 @@ fn main() {
             .unwrap();
         let mut buf: Vec<u8> = Vec::new();
         f.read_to_end(&mut buf).unwrap();
+        let rows_start = qvd_structure.offset;
+        let rows_end = buf.len();
+        let rows_section = &buf[rows_start..rows_end];
+        //println!("rows {:?}", rows_section);
+        let record_byte_size = qvd_structure.record_byte_size;
 
         for field_header in qvd_structure.fields.headers {
             symbol_map.insert(
                 field_header.field_name.clone(),
                 get_symbols(&buf, &field_header),
             );
-            get_rows(&buf, &field_header, &qvd_structure)
+            //println!("{:?}", symbol_map[&field_header.field_name]);
+
+            let pointers = get_row_indexes(&rows_section, &field_header, record_byte_size);
+            let row = match_symbols_with_rows(
+                &field_header.field_name,
+                &symbol_map[&field_header.field_name],
+                &pointers,
+            );
+            rows.insert(field_header.field_name, row);           
+        }
+        println!("{:?}" ,rows);
+    }
+    println!("time {}ms", now.elapsed().as_millis());
+}
+
+fn match_symbols_with_rows(field_name: &str, symbol: &Symbol, row_pointers: &Vec<i64>) -> Symbol {
+    match symbol {
+        Symbol::Strings(symbols) => {
+            let mut rows: Vec<String> = Vec::new();
+            for pointer in row_pointers {
+                if *pointer == -1 {
+                    rows.push(String::from("NULL"));
+                }
+                else {rows.push(symbols[*pointer as usize].clone());}
+            }
+            return Symbol::Strings(rows);
+        }
+        Symbol::Numbers(symbols) => {
+            let mut rows: Vec<i64> = Vec::new();
+            for pointer in row_pointers {
+                if *pointer == -1 {
+                    rows.push(0);
+                }
+                else {rows.push(symbols[*pointer as usize]);}
+            }
+            return Symbol::Numbers(rows);
         }
     }
-    // println!("{:?}", symbol_map);
-    println!("string symbol tables {}", now.elapsed().as_millis());
 }
 
 fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> Symbol {
@@ -63,21 +99,55 @@ fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> Symbol {
                 Symbol::Numbers(Vec::new())
             }
         }
-        _ => (panic!()),
+        _ => {
+            let mut v: Vec<String> = Vec::new();
+            //TODO: remove null string
+            v.push(String::from("NULL"));
+            Symbol::Strings(v)
+        },
     }
 }
 
-fn get_rows(buf: &[u8], field: &QvdFieldHeader, qvd: &QvdTableHeader) {
-    let start = qvd.offset;
-    let end = buf.len();
-    let rows_section = &buf[start..end];
+fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) -> Vec<i64> {
+    let mut cloned_buf = buf.clone().to_owned();
+    let chunks = cloned_buf.chunks_mut(record_byte_size);
+    let mut indexes: Vec<i64> = Vec::new();    
+    // Reverse the bytes
+    for chunk in chunks {      
+        chunk.reverse();
+        let bits = BitSlice::<Msb0, _>::from_slice(&chunk[..]).unwrap();
+        let start = bits.len() - field.bit_offset;
+        let end = bits.len() - field.bit_offset - field.bit_width;
+        let binary = bitslice_to_vec(&bits[end..start]);
+        let index = binary_to_u32(binary);
+        if index == 0 {
+            indexes.push(index as i64);
+        } else {
+            indexes.push((index as i32 + field.bias) as i64);
+        }
+    }
+    indexes
+}
 
-    let chunks = buf.chunks(qvd.record_byte_size);
+fn binary_to_u32(binary: Vec<u8>) -> u32 {
+    let mut sum: u32 = 0;
+    for bit in binary {
+        sum <<= 1;
+        sum += bit as u32;
+    }
+    sum
+}
 
-    for chunk in chunks {
-        let bits = BitVec::from_bytes(chunk);
-        println!("bits - {:?}", bits);
-    }        
+fn bitslice_to_vec(bitslice: &BitSlice<Msb0, u8>) -> Vec<u8> {
+    let mut v: Vec<u8> = Vec::new();
+    for bit in bitslice {
+        let val = match bit {
+            true => 1,
+            false => 0,
+        };
+        v.push(val);
+    }
+    v
 }
 
 fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
@@ -155,6 +225,7 @@ pub fn process_number_symbols(buf: &[u8]) -> Vec<i64> {
     numbers
 }
 
+
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
 fn read_file<P>(filename: P) -> io::Result<io::BufReader<File>>
@@ -167,6 +238,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use bitvec::prelude::*;
+    use byteorder::ByteOrder;
+    use byteorder::LittleEndian;
+
     use super::*;
 
     #[test]
@@ -228,21 +303,38 @@ mod tests {
     }
 
     #[test]
-    fn test_bit_vec() {
-        let x = [0x00,0x00,0x00,0x11,0x01,0x22,0x02,0x33,0x13,0x34,0x14,0x35];
-        let y = bit_vec::BitVec::from_bytes(&x);
-        let mut v: Vec<u8> = Vec::new();
-        for val in y {
-            match val {
-                true => v.push(1),
-                false => v.push(0)
-            }
-        }
+    fn test_bitslice_to_vec() {
+        let mut x: Vec<u8> = vec![
+            0x00, 0x00, 0x00, 0x11, 0x01, 0x22, 0x02, 0x33, 0x13, 0x34, 0x14, 0x35,
+        ];
+        let bits = BitSlice::<Msb0, _>::from_slice(&mut x[..]).unwrap();
+        let target = &bits[27..32];
+        let binary_vec = bitslice_to_vec(&target);
 
-        let mut iter = v.chunks(16);
-        for chunk in iter {
-            println!("{:?}", chunk);
+        let mut sum: u32 = 0;
+        for bit in binary_vec {
+            sum <<= 1;
+            sum += bit as u32;
         }
-        
+        assert_eq!(17, sum);
+    }
+
+    #[test]
+    fn test_get_rows() {
+        let mut buf: Vec<u8> = vec![
+            0x00, 0x00, 0x00, 0x11, 0x01, 0x22, 0x02, 0x33, 0x13, 0x34, 0x14, 0x35,
+        ];
+        let field = QvdFieldHeader {
+            field_name: String::from("name"),
+            offset: 0,
+            length: 0,
+            bit_offset: 10,
+            bit_width: 3,
+            bias: 0,
+        };
+        let record_byte_size = buf.len();
+        let res = get_row_indexes(&buf, &field, record_byte_size);
+        let expected: Vec<i64> = vec![5];
+        assert_eq!(expected, res);
     }
 }
