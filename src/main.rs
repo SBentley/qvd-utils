@@ -1,20 +1,15 @@
-#![allow(unused_imports)]
 use bitvec::prelude::*;
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
-use quick_xml::de::{from_str, DeError};
-use qvd_structure::{Fields, QvdFieldHeader, QvdTableHeader, Symbol};
-use serde::Deserialize;
-use std::convert::TryInto;
-use std::error::Error;
+use byteorder::{BigEndian, ReadBytesExt};
+use quick_xml::de::from_str;
+use qvd_structure::{QvdFieldHeader, QvdTableHeader, Symbol};
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::io::{self, Read};
 use std::path::Path;
 use std::str;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::{collections::HashMap, fs::File};
-use std::{env, fs};
+use std::env;
 pub mod qvd_structure;
 
 fn main() {
@@ -39,7 +34,6 @@ fn main() {
         let rows_start = qvd_structure.offset;
         let rows_end = buf.len();
         let rows_section = &buf[rows_start..rows_end];
-        //println!("rows {:?}", rows_section);
         let record_byte_size = qvd_structure.record_byte_size;
 
         for field_header in qvd_structure.fields.headers {
@@ -47,27 +41,28 @@ fn main() {
                 field_header.field_name.clone(),
                 get_symbols(&buf, &field_header),
             );
-            //println!("{:?}", symbol_map[&field_header.field_name]);
 
             let pointers = get_row_indexes(&rows_section, &field_header, record_byte_size);
+            println!("{}", field_header.field_name);
             let row = match_symbols_with_rows(
-                &field_header.field_name,
                 &symbol_map[&field_header.field_name],
                 &pointers,
             );
             rows.insert(field_header.field_name, row);           
         }
-        println!("{:?}" ,rows);
     }
     println!("time {}ms", now.elapsed().as_millis());
 }
 
-fn match_symbols_with_rows(field_name: &str, symbol: &Symbol, row_pointers: &Vec<i64>) -> Symbol {
+fn match_symbols_with_rows(symbol: &Symbol, row_pointers: &Vec<i64>) -> Symbol {
     match symbol {
         Symbol::Strings(symbols) => {
             let mut rows: Vec<String> = Vec::new();
             for pointer in row_pointers {
-                if *pointer == -1 {
+                if symbols.len() == 0 {
+                    continue;
+                }
+                else if *pointer == -1 {
                     rows.push(String::from("NULL"));
                 }
                 else {rows.push(symbols[*pointer as usize].clone());}
@@ -77,10 +72,15 @@ fn match_symbols_with_rows(field_name: &str, symbol: &Symbol, row_pointers: &Vec
         Symbol::Numbers(symbols) => {
             let mut rows: Vec<i64> = Vec::new();
             for pointer in row_pointers {
-                if *pointer == -1 {
+                if symbols.len() == 0 {
+                    continue;
+                }
+                else if *pointer == -1 {
                     rows.push(0);
                 }
-                else {rows.push(symbols[*pointer as usize]);}
+                else {
+                    rows.push(symbols[*pointer as usize]);
+                }
             }
             return Symbol::Numbers(rows);
         }
@@ -112,8 +112,8 @@ fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) 
     let mut cloned_buf = buf.clone().to_owned();
     let chunks = cloned_buf.chunks_mut(record_byte_size);
     let mut indexes: Vec<i64> = Vec::new();    
-    // Reverse the bytes
     for chunk in chunks {      
+        // Reverse the bytes in the record
         chunk.reverse();
         let bits = BitSlice::<Msb0, _>::from_slice(&chunk[..]).unwrap();
         let start = bits.len() - field.bit_offset;
@@ -239,9 +239,6 @@ where
 #[cfg(test)]
 mod tests {
     use bitvec::prelude::*;
-    use byteorder::ByteOrder;
-    use byteorder::LittleEndian;
-
     use super::*;
 
     #[test]
@@ -320,9 +317,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_rows() {
-        let mut buf: Vec<u8> = vec![
-            0x00, 0x00, 0x00, 0x11, 0x01, 0x22, 0x02, 0x33, 0x13, 0x34, 0x14, 0x35,
+    fn test_get_row_indexes() {
+        let buf: Vec<u8> = vec![
+            0x00, 0x14, 0x00, 0x11, 0x01, 0x22, 0x02, 0x33, 0x13, 0x34, 0x24, 0x35,
         ];
         let field = QvdFieldHeader {
             field_name: String::from("name"),
