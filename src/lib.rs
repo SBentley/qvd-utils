@@ -1,4 +1,4 @@
-use cpython::{PyResult, Python, PyList, py_module_initializer, py_fn};
+use cpython::{PyDict, PyResult, Python, py_fn, py_module_initializer};
 use bitvec::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt};
 use quick_xml::de::from_str;
@@ -21,19 +21,19 @@ py_module_initializer!(qvd, |py, m| {
 // declared in a separate module.
 // Note that the py_fn!() macro automatically converts the arguments from
 // Python objects to Rust values; and the Rust return value back into a Python object.
-fn read_qvd_py(_: Python, file_name: String) -> PyResult<HashMap<String, PyList>> {
-    let out = read_qvd(file_name);
+fn read_qvd_py(py: Python, file_name: String) -> PyResult<PyDict> {
+    let out = read_qvd(py, file_name);
     Ok(out)
 }
 
-pub fn read_qvd<'a>(file_name: String) -> HashMap<String, PyList> {
+pub fn read_qvd<'a>(py: Python, file_name: String) -> PyDict {
     let xml: String = get_xml_data(&file_name).expect("Unable to locate xml section in qvd file");
 
     let binary_section_offset = xml.as_bytes().len();
-
+    let dict = PyDict::new(py);
+    
     let qvd_structure: QvdTableHeader = from_str(&xml).unwrap();
     let mut symbol_map: HashMap<String, Symbol> = HashMap::new();
-    let mut data: HashMap<String , Symbol> = HashMap::new();
     let mut columns: Vec<String> = Vec::new();
 
     if let Ok(mut f) = File::open(&file_name) {
@@ -59,13 +59,20 @@ pub fn read_qvd<'a>(file_name: String) -> HashMap<String, PyList> {
                 &pointers,
             );
 
-            data.insert(field_header.field_name, row);           
+            match row {
+                Symbol::Strings(symbols) => {
+                    dict.set_item(py, field_header.field_name, symbols).unwrap();
+                }
+                Symbol::Numbers(symbols) => {                    
+                    dict.set_item(py, field_header.field_name, symbols).unwrap();
+                }
+            }
         }         
     }
-    data
+    dict
 }
 
-fn match_symbols_with_rows(symbol: &Symbol, row_pointers: &Vec<i64>) -> PyList {
+fn match_symbols_with_rows(symbol: &Symbol, row_pointers: &Vec<i64>) -> Symbol {
     match symbol {
         Symbol::Strings(symbols) => {
             let mut rows: Vec<String> = Vec::new();
@@ -78,16 +85,7 @@ fn match_symbols_with_rows(symbol: &Symbol, row_pointers: &Vec<i64>) -> PyList {
                 }
                 else {rows.push(symbols[*pointer as usize].clone());}
             }
-            
-
-            // for row in rows {
-
-            // }
-            let gil = Python::acquire_gil();
-    let py = gil.python();
-            let pylist: PyList = PyList::new(py, &[1,2,3]);
-            return pylist
-            //return Symbol::Strings(rows);
+            return Symbol::Strings(rows);
         }
         Symbol::Numbers(symbols) => {
             let mut rows: Vec<i64> = Vec::new();
