@@ -21,7 +21,7 @@ fn qvd(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pyfunction]
 pub fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
-    let xml: String = get_xml_data(&file_name).expect("Unable to locate xml section in qvd file");
+    let xml: String = get_xml_data(&file_name).expect("Error reading file");
     let dict = PyDict::new(py);
     let binary_section_offset = xml.as_bytes().len();
 
@@ -154,7 +154,7 @@ fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
             let mut buffer = Vec::new();
             // There is a line break, carriage return and a null terminator between the XMl and data
             // Find the null terminator
-            reader.read_until(0, &mut buffer).unwrap();
+            reader.read_until(0, &mut buffer).expect("Failed to read file");
             let xml_string =
                 str::from_utf8(&buffer[..]).expect("xml section contains invalid UTF-8 chars");
             Ok(xml_string.to_owned())
@@ -223,8 +223,6 @@ pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<i64>> {
     numbers
 }
 
-// The output is wrapped in a Result to allow matching on errors
-// Returns an Iterator to the Reader of the lines of the file.
 fn read_file<P>(filename: P) -> io::Result<io::BufReader<File>>
 where
     P: AsRef<Path>,
@@ -236,7 +234,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitvec::prelude::*;
 
     #[test]
     fn it_works() {

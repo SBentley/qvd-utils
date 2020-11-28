@@ -1,7 +1,11 @@
 from qvd import reader
+import sys
 
-df = reader.read('test_qvd.qvd')
-print(df)
+args = sys.argv[1:]
 
-dict = reader.read_to_dict('test_qvd_null.qvd')
-print(dict)
+for file in args:
+    df = reader.read(file)
+    print(df)
+
+    dict = reader.read_to_dict(file)
+    print(f'\n {dict}')
