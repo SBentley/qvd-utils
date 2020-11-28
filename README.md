@@ -7,6 +7,7 @@ from qvd import reader
 df = reader.read('test.qvd')
 print(df)
 ```
+![example](example.png)
 
 ### Developing
 Create a virtual env https://docs.python-guide.org/dev/virtualenvs/ and activate it.
