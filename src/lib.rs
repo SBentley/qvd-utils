@@ -27,7 +27,6 @@ pub fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
 
     let qvd_structure: QvdTableHeader = from_str(&xml).unwrap();
     let mut symbol_map: HashMap<String, QlikType> = HashMap::new();
-    let mut column_names: Vec<String> = Vec::new();
 
     if let Ok(mut f) = File::open(&file_name) {
         // Seek to the end of the XML section
@@ -42,7 +41,6 @@ pub fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
 
         for field in qvd_structure.fields.headers {
             symbol_map.insert(field.field_name.clone(), get_symbols(&buf, &field));
-            column_names.push(field.field_name.clone());
             let pointers = get_row_indexes(&rows_section, &field, record_byte_size);
             let column = match_symbols_with_pointer(&symbol_map[&field.field_name], &pointers);
             match column {
@@ -65,7 +63,7 @@ fn match_symbols_with_pointer(symbol: &QlikType, pointers: &Vec<i64>) -> QlikTyp
             for pointer in pointers {
                 if symbols.len() == 0 {
                     continue;
-                } else if *pointer < -1 {
+                } else if *pointer < 0 {
                     cols.push(None);
                 } else {
                     cols.push(symbols[*pointer as usize].clone());
@@ -171,6 +169,7 @@ fn retrieve_string_symbols(buf: &[u8]) -> Vec<Option<String>> {
     while i < buf.len() {
         let byte = &buf[i];
         match byte {
+            // Strings are null terminated
             0 => {
                 strings.push(Some(current_string.clone()));
                 current_string.clear();

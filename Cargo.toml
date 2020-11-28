@@ -1,6 +1,6 @@
 [package]
-name = "qvd_utils"
-version = "0.1.0"
+name = "qvd"
+version = "0.0.1"
 authors = ["Sam Bentley <samtbentley@gmail.com>"]
 edition = "2018"
 
