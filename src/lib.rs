@@ -1,8 +1,9 @@
-use cpython::{PyDict, PyResult, Python, py_fn, py_module_initializer};
 use bitvec::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt};
+use pyo3::wrap_pyfunction;
+use pyo3::{prelude::*, types::PyDict};
 use quick_xml::de::from_str;
-use qvd_structure::{QvdFieldHeader, QvdTableHeader, Symbol};
+use qvd_structure::{QlikType, QvdFieldHeader, QvdTableHeader};
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::io::{self, Read};
@@ -11,30 +12,22 @@ use std::str;
 use std::{collections::HashMap, fs::File};
 pub mod qvd_structure;
 
-py_module_initializer!(qvd, |py, m| {
-    m.add(py, "__doc__", "This module is implemented in Rust.")?;
-    m.add(py, "read_qvd", py_fn!(py, read_qvd_py(file_name: String)))?;
-    Ok(())
-});
+#[pymodule]
+fn qvd(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(read_qvd, m)?)?;
 
-// rust-cpython aware function. All of our python interface could be
-// declared in a separate module.
-// Note that the py_fn!() macro automatically converts the arguments from
-// Python objects to Rust values; and the Rust return value back into a Python object.
-fn read_qvd_py(py: Python, file_name: String) -> PyResult<PyDict> {
-    let out = read_qvd(py, file_name);
-    Ok(out)
+    Ok(())
 }
 
-pub fn read_qvd<'a>(py: Python, file_name: String) -> PyDict {
+#[pyfunction]
+pub fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
     let xml: String = get_xml_data(&file_name).expect("Unable to locate xml section in qvd file");
-
-    let binary_section_offset = xml.as_bytes().len();
     let dict = PyDict::new(py);
-    
+    let binary_section_offset = xml.as_bytes().len();
+
     let qvd_structure: QvdTableHeader = from_str(&xml).unwrap();
-    let mut symbol_map: HashMap<String, Symbol> = HashMap::new();
-    let mut columns: Vec<String> = Vec::new();
+    let mut symbol_map: HashMap<String, QlikType> = HashMap::new();
+    let mut column_names: Vec<String> = Vec::new();
 
     if let Ok(mut f) = File::open(&file_name) {
         // Seek to the end of the XML section
@@ -47,90 +40,81 @@ pub fn read_qvd<'a>(py: Python, file_name: String) -> PyDict {
         let rows_section = &buf[rows_start..rows_end];
         let record_byte_size = qvd_structure.record_byte_size;
 
-        for field_header in qvd_structure.fields.headers {
-            symbol_map.insert(
-                field_header.field_name.clone(),
-                get_symbols(&buf, &field_header),
-            );
-            columns.push(field_header.field_name.clone());
-            let pointers = get_row_indexes(&rows_section, &field_header, record_byte_size);
-            let row = match_symbols_with_rows(
-                &symbol_map[&field_header.field_name],
-                &pointers,
-            );
-
-            match row {
-                Symbol::Strings(symbols) => {
-                    dict.set_item(py, field_header.field_name, symbols).unwrap();
+        for field in qvd_structure.fields.headers {
+            symbol_map.insert(field.field_name.clone(), get_symbols(&buf, &field));
+            column_names.push(field.field_name.clone());
+            let pointers = get_row_indexes(&rows_section, &field, record_byte_size);
+            let column = match_symbols_with_pointer(&symbol_map[&field.field_name], &pointers);
+            match column {
+                QlikType::Strings(v) => {
+                    dict.set_item(field.field_name, v).unwrap();
                 }
-                Symbol::Numbers(symbols) => {                    
-                    dict.set_item(py, field_header.field_name, symbols).unwrap();
+                QlikType::Numbers(v) => {
+                    dict.set_item(field.field_name, v).unwrap();
                 }
             }
-        }         
+        }
     }
-    dict
+    Ok(dict.into())
 }
 
-fn match_symbols_with_rows(symbol: &Symbol, row_pointers: &Vec<i64>) -> Symbol {
+fn match_symbols_with_pointer(symbol: &QlikType, pointers: &Vec<i64>) -> QlikType {
     match symbol {
-        Symbol::Strings(symbols) => {
-            let mut rows: Vec<String> = Vec::new();
-            for pointer in row_pointers {
+        QlikType::Strings(symbols) => {
+            let mut cols: Vec<Option<String>> = Vec::new();
+            for pointer in pointers {
                 if symbols.len() == 0 {
                     continue;
+                } else if *pointer < -1 {
+                    cols.push(None);
+                } else {
+                    cols.push(symbols[*pointer as usize].clone());
                 }
-                else if *pointer == -1 {
-                    rows.push(String::from("NULL"));
-                }
-                else {rows.push(symbols[*pointer as usize].clone());}
             }
-            return Symbol::Strings(rows);
+            return QlikType::Strings(cols);
         }
-        Symbol::Numbers(symbols) => {
-            let mut rows: Vec<i64> = Vec::new();
-            for pointer in row_pointers {
+        QlikType::Numbers(symbols) => {
+            let mut cols: Vec<Option<i64>> = Vec::new();
+            for pointer in pointers {
                 if symbols.len() == 0 {
                     continue;
-                }
-                else if *pointer == -1 {
-                    rows.push(0);
-                }
-                else {
-                    rows.push(symbols[*pointer as usize]);
+                } else if *pointer < 0 {
+                    cols.push(None);
+                } else {
+                    cols.push(symbols[*pointer as usize]);
                 }
             }
-            return Symbol::Numbers(rows);
+            return QlikType::Numbers(cols);
         }
     }
 }
 
-fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> Symbol {
+fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> QlikType {
     let start = field.offset;
     let end = start + field.length;
     match buf[start] {
-        4 | 5 | 6 => Symbol::Strings(process_string_symbols(&buf[start..end])),
+        4 | 5 | 6 => QlikType::Strings(retrieve_string_symbols(&buf[start..end])),
         1 | 2 => {
             if field.length > 8 {
-                Symbol::Numbers(process_number_symbols(&buf[start..end]))
+                QlikType::Numbers(retrieve_number_symbols(&buf[start..end]))
             } else {
-                Symbol::Numbers(Vec::new())
+                QlikType::Numbers(Vec::new())
             }
         }
         _ => {
-            let mut v: Vec<String> = Vec::new();
+            let mut v: Vec<Option<String>> = Vec::new();
             //TODO: remove null string
-            v.push(String::from("NULL"));
-            Symbol::Strings(v)
-        },
+            v.push(None);
+            QlikType::Strings(v)
+        }
     }
 }
 
 fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) -> Vec<i64> {
     let mut cloned_buf = buf.clone().to_owned();
     let chunks = cloned_buf.chunks_mut(record_byte_size);
-    let mut indexes: Vec<i64> = Vec::new();    
-    for chunk in chunks {      
+    let mut indexes: Vec<i64> = Vec::new();
+    for chunk in chunks {
         // Reverse the bytes in the record
         chunk.reverse();
         let bits = BitSlice::<Msb0, _>::from_slice(&chunk[..]).unwrap();
@@ -138,11 +122,7 @@ fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) 
         let end = bits.len() - field.bit_offset - field.bit_width;
         let binary = bitslice_to_vec(&bits[end..start]);
         let index = binary_to_u32(binary);
-        if index == 0 {
-            indexes.push(index as i64);
-        } else {
-            indexes.push((index as i32 + field.bias) as i64);
-        }
+        indexes.push((index as i32 + field.bias) as i64);
     }
     indexes
 }
@@ -183,16 +163,16 @@ fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
     }
 }
 
-fn process_string_symbols(buf: &[u8]) -> Vec<String> {
+fn retrieve_string_symbols(buf: &[u8]) -> Vec<Option<String>> {
     let mut current_string = String::new();
-    let mut strings: Vec<String> = Vec::new();
+    let mut strings: Vec<Option<String>> = Vec::new();
 
     let mut i = 0;
     while i < buf.len() {
         let byte = &buf[i];
         match byte {
             0 => {
-                strings.push(current_string.clone());
+                strings.push(Some(current_string.clone()));
                 current_string.clear();
             }
             4 | b'\r' | b'\n' => (),
@@ -217,8 +197,8 @@ fn process_string_symbols(buf: &[u8]) -> Vec<String> {
 }
 
 // 8 bytes
-pub fn process_number_symbols(buf: &[u8]) -> Vec<i64> {
-    let mut numbers: Vec<i64> = Vec::new();
+pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<i64>> {
+    let mut numbers: Vec<Option<i64>> = Vec::new();
     let mut i = 0;
     while i < buf.len() {
         let byte = &buf[i];
@@ -226,13 +206,13 @@ pub fn process_number_symbols(buf: &[u8]) -> Vec<i64> {
             1 => {
                 let mut x = &buf[i + 1..i + 5];
                 let value = x.read_i32::<BigEndian>().unwrap();
-                numbers.push(value as i64);
+                numbers.push(Some(value as i64));
                 i += 5;
             }
             2 => {
                 let mut x = &buf[i + 1..i + 9];
                 let value = x.read_i64::<BigEndian>().unwrap();
-                numbers.push(value);
+                numbers.push(Some(value));
                 i += 9;
             }
             _ => {
@@ -242,7 +222,6 @@ pub fn process_number_symbols(buf: &[u8]) -> Vec<i64> {
     }
     numbers
 }
-
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
@@ -256,8 +235,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use bitvec::prelude::*;
     use super::*;
+    use bitvec::prelude::*;
 
     #[test]
     fn it_works() {
@@ -270,16 +249,16 @@ mod tests {
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xA4, 0x02, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x01, 0xA5,
         ];
-        let res = process_number_symbols(&buf);
-        let expected: Vec<i64> = vec![420, 421];
+        let res = retrieve_number_symbols(&buf);
+        let expected: Vec<Option<i64>> = vec![Some(420), Some(421)];
         assert_eq!(expected, res);
     }
 
     #[test]
     fn test_int() {
         let buf: Vec<u8> = vec![0x01, 0x00, 0x00, 0x00, 0x0A, 0x01, 0x00, 0x00, 0x00, 0x14];
-        let res = process_number_symbols(&buf);
-        let expected = vec![10, 20];
+        let res = retrieve_number_symbols(&buf);
+        let expected = vec![Some(10), Some(20)];
         assert_eq!(expected, res);
     }
 
@@ -289,8 +268,8 @@ mod tests {
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xA4, 0x02, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x01, 0xA5, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x01, 0x00, 0x00, 0x00, 0x14,
         ];
-        let res = process_number_symbols(&buf);
-        let expected: Vec<i64> = vec![420, 421, 10, 20];
+        let res = retrieve_number_symbols(&buf);
+        let expected: Vec<Option<i64>> = vec![Some(420), Some(421), Some(10), Some(20)];
         assert_eq!(expected, res);
     }
 
@@ -300,8 +279,8 @@ mod tests {
             4, 101, 120, 97, 109, 112, 108, 101, 32, 116, 101, 120, 116, 0, 4, 114, 117, 115, 116,
             0,
         ];
-        let res = process_string_symbols(&buf);
-        let expected = vec!["example text", "rust"];
+        let res = retrieve_string_symbols(&buf);
+        let expected = vec![Some("example text".into()), Some("rust".into())];
         assert_eq!(expected, res);
     }
 
@@ -312,8 +291,13 @@ mod tests {
             0, 5, 42, 65, 80, 1, 49, 50, 51, 52, 0, 6, 1, 1, 1, 1, 1, 1, 1, 1, 100, 111, 117, 98,
             108, 101, 0,
         ];
-        let res = process_string_symbols(&buf);
-        let expected = vec!["example text", "rust", "1234", "double"];
+        let res = retrieve_string_symbols(&buf);
+        let expected = vec![
+            Some("example text".into()),
+            Some("rust".into()),
+            Some("1234".into()),
+            Some("double".into()),
+        ];
         assert_eq!(expected, res);
     }
 

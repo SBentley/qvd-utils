@@ -41,8 +41,7 @@ pub struct QvdFieldHeader {
 }
 
 #[derive(Debug)]
-pub enum Symbol {
-    Strings(Vec<String>),
-    Numbers(Vec<i64>),
+pub enum QlikType {
+    Strings(Vec<Option<String>>),
+    Numbers(Vec<Option<i64>>),
 }
-// }
