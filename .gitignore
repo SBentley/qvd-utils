@@ -13,3 +13,8 @@ Cargo.lock
 metrics-prod.qvd
 clients.qvd
 *.txt
+
+# python binaries
+.so
+.dll
+.pyc
