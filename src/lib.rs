@@ -94,13 +94,12 @@ fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> QlikType {
         4 | 5 | 6 => {
             if field.length > 0 {
                 QlikType::Strings(retrieve_string_symbols(&buf[start..end]))
-            }
-            else {
+            } else {
                 let mut none_vec: Vec<Option<String>> = Vec::new();
                 none_vec.push(None);
                 QlikType::Strings(none_vec)
             }
-        },
+        }
         1 | 2 => {
             if field.length > 0 {
                 QlikType::Numbers(retrieve_number_symbols(&buf[start..end]))
@@ -163,7 +162,9 @@ fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
             let mut buffer = Vec::new();
             // There is a line break, carriage return and a null terminator between the XMl and data
             // Find the null terminator
-            reader.read_until(0, &mut buffer).expect("Failed to read file");
+            reader
+                .read_until(0, &mut buffer)
+                .expect("Failed to read file");
             let xml_string =
                 str::from_utf8(&buffer[..]).expect("xml section contains invalid UTF-8 chars");
             Ok(xml_string.to_owned())
@@ -213,7 +214,7 @@ pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<f64>> {
         let byte = &buf[i];
         match byte {
             1 => {
-                let mut x = &buf[i + 1..i + 5];                
+                let mut x = &buf[i + 1..i + 5];
                 let value = x.read_i32::<LittleEndian>().unwrap();
                 numbers.push(Some(value as f64));
                 i += 5;
@@ -252,8 +253,8 @@ mod tests {
     #[test]
     fn test_double() {
         let buf: Vec<u8> = vec![
-            0x02, 0xA4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xA5, 0x01, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x7a, 0x40, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x7a, 0x40,
         ];
         let res = retrieve_number_symbols(&buf);
         let expected: Vec<Option<f64>> = vec![Some(420.0), Some(421.0)];
@@ -271,11 +272,11 @@ mod tests {
     #[test]
     fn test_mixed_numbers() {
         let buf: Vec<u8> = vec![
-            0x02, 0xA4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xA5, 0x01, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x01, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x14, 0x00, 0x00, 0x00,
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x7a, 0x40, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x7a, 0x40, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00,
         ];
         let res = retrieve_number_symbols(&buf);
-        let expected: Vec<Option<f64>> = vec![Some(420.0), Some(421.0), Some(10.0), Some(20.0)];
+        let expected: Vec<Option<f64>> = vec![Some(420.0), Some(421.0), Some(1.0), Some(2.0)];
         assert_eq!(expected, res);
     }
 
