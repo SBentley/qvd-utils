@@ -1,5 +1,5 @@
 use bitvec::prelude::*;
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use pyo3::wrap_pyfunction;
 use pyo3::{prelude::*, types::PyDict};
 use quick_xml::de::from_str;
@@ -214,14 +214,14 @@ pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<i64>> {
         let byte = &buf[i];
         match byte {
             1 => {
-                let mut x = &buf[i + 1..i + 5];
-                let value = x.read_i32::<BigEndian>().unwrap();
+                let mut x = &buf[i + 1..i + 5];                
+                let value = x.read_i32::<LittleEndian>().unwrap();
                 numbers.push(Some(value as i64));
                 i += 5;
             }
             2 => {
                 let mut x = &buf[i + 1..i + 9];
-                let value = x.read_i64::<BigEndian>().unwrap();
+                let value = x.read_i64::<LittleEndian>().unwrap();
                 numbers.push(Some(value));
                 i += 9;
             }
@@ -253,8 +253,8 @@ mod tests {
     #[test]
     fn test_double() {
         let buf: Vec<u8> = vec![
-            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xA4, 0x02, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x01, 0xA5,
+            0x02, 0xA4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xA5, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
         ];
         let res = retrieve_number_symbols(&buf);
         let expected: Vec<Option<i64>> = vec![Some(420), Some(421)];
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_int() {
-        let buf: Vec<u8> = vec![0x01, 0x00, 0x00, 0x00, 0x0A, 0x01, 0x00, 0x00, 0x00, 0x14];
+        let buf: Vec<u8> = vec![0x01, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x14, 0x00, 0x00, 0x00];
         let res = retrieve_number_symbols(&buf);
         let expected = vec![Some(10), Some(20)];
         assert_eq!(expected, res);
@@ -272,8 +272,8 @@ mod tests {
     #[test]
     fn test_mixed_numbers() {
         let buf: Vec<u8> = vec![
-            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xA4, 0x02, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x01, 0xA5, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x01, 0x00, 0x00, 0x00, 0x14,
+            0x02, 0xA4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xA5, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x14, 0x00, 0x00, 0x00,
         ];
         let res = retrieve_number_symbols(&buf);
         let expected: Vec<Option<i64>> = vec![Some(420), Some(421), Some(10), Some(20)];
