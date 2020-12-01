@@ -7,5 +7,5 @@ for file in args:
     df = reader.read(file)
     print(df)
 
-    dict = reader.read_to_dict(file)
-    print(f'\n {dict}')
+    #dict = reader.read_to_dict(file)
+    #print(f'\n {dict}')

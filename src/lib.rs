@@ -91,12 +91,23 @@ fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> QlikType {
     let start = field.offset;
     let end = start + field.length;
     match buf[start] {
-        4 | 5 | 6 => QlikType::Strings(retrieve_string_symbols(&buf[start..end])),
+        4 | 5 | 6 => {
+            if field.length > 0 {
+                QlikType::Strings(retrieve_string_symbols(&buf[start..end]))
+            }
+            else {
+                let mut none_vec: Vec<Option<String>> = Vec::new();
+                none_vec.push(None);
+                QlikType::Strings(none_vec)
+            }
+        },
         1 | 2 => {
-            if field.length > 8 {
+            if field.length > 0 {
                 QlikType::Numbers(retrieve_number_symbols(&buf[start..end]))
             } else {
-                QlikType::Numbers(Vec::new())
+                let mut none_vec: Vec<Option<i64>> = Vec::new();
+                none_vec.push(None);
+                QlikType::Numbers(none_vec)
             }
         }
         _ => {
