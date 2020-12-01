@@ -72,7 +72,7 @@ fn match_symbols_with_pointer(symbol: &QlikType, pointers: &Vec<i64>) -> QlikTyp
             return QlikType::Strings(cols);
         }
         QlikType::Numbers(symbols) => {
-            let mut cols: Vec<Option<i64>> = Vec::new();
+            let mut cols: Vec<Option<f64>> = Vec::new();
             for pointer in pointers {
                 if symbols.len() == 0 {
                     continue;
@@ -105,7 +105,7 @@ fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> QlikType {
             if field.length > 0 {
                 QlikType::Numbers(retrieve_number_symbols(&buf[start..end]))
             } else {
-                let mut none_vec: Vec<Option<i64>> = Vec::new();
+                let mut none_vec: Vec<Option<f64>> = Vec::new();
                 none_vec.push(None);
                 QlikType::Numbers(none_vec)
             }
@@ -206,9 +206,8 @@ fn retrieve_string_symbols(buf: &[u8]) -> Vec<Option<String>> {
     strings
 }
 
-// 8 bytes
-pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<i64>> {
-    let mut numbers: Vec<Option<i64>> = Vec::new();
+pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<f64>> {
+    let mut numbers: Vec<Option<f64>> = Vec::new();
     let mut i = 0;
     while i < buf.len() {
         let byte = &buf[i];
@@ -216,12 +215,12 @@ pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<i64>> {
             1 => {
                 let mut x = &buf[i + 1..i + 5];                
                 let value = x.read_i32::<LittleEndian>().unwrap();
-                numbers.push(Some(value as i64));
+                numbers.push(Some(value as f64));
                 i += 5;
             }
             2 => {
                 let mut x = &buf[i + 1..i + 9];
-                let value = x.read_i64::<LittleEndian>().unwrap();
+                let value = x.read_f64::<LittleEndian>().unwrap();
                 numbers.push(Some(value));
                 i += 9;
             }
@@ -257,7 +256,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00,
         ];
         let res = retrieve_number_symbols(&buf);
-        let expected: Vec<Option<i64>> = vec![Some(420), Some(421)];
+        let expected: Vec<Option<f64>> = vec![Some(420.0), Some(421.0)];
         assert_eq!(expected, res);
     }
 
@@ -265,7 +264,7 @@ mod tests {
     fn test_int() {
         let buf: Vec<u8> = vec![0x01, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x14, 0x00, 0x00, 0x00];
         let res = retrieve_number_symbols(&buf);
-        let expected = vec![Some(10), Some(20)];
+        let expected = vec![Some(10.0), Some(20.0)];
         assert_eq!(expected, res);
     }
 
@@ -276,7 +275,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x01, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x14, 0x00, 0x00, 0x00,
         ];
         let res = retrieve_number_symbols(&buf);
-        let expected: Vec<Option<i64>> = vec![Some(420), Some(421), Some(10), Some(20)];
+        let expected: Vec<Option<f64>> = vec![Some(420.0), Some(421.0), Some(10.0), Some(20.0)];
         assert_eq!(expected, res);
     }
 
