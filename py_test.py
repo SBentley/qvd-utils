@@ -1,11 +1,12 @@
-from qvd import reader
+from qvd import qvd_reader
 import sys
 
 args = sys.argv[1:]
 
 for file in args:
-    df = reader.read(file)
+    df = qvd_reader.read(file)
     print(df)
 
+#    print(df['DEAL_PRICE'])
     #dict = reader.read_to_dict(file)
     #print(f'\n {dict}')

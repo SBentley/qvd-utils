@@ -20,7 +20,7 @@ fn qvd(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pyfunction]
-pub fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
+fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
     let xml: String = get_xml_data(&file_name).expect("Error reading file");
     let dict = PyDict::new(py);
     let binary_section_offset = xml.as_bytes().len();
