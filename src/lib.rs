@@ -246,11 +246,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-
-    #[test]
     fn test_double() {
         let buf: Vec<u8> = vec![
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x7a, 0x40, 0x02, 0x00, 0x00, 0x00, 0x00,
