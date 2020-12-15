@@ -1,9 +1,10 @@
 [package]
 name = "qvd"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Sam Bentley <samtbentley@gmail.com>"]
 edition = "2018"
 readme = "README.md"
+description = "A library for reading Qlik Sense .qvd file format from Python, written in Rust."
 
 [lib]
 name = "qvd"
