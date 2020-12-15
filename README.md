@@ -1,5 +1,10 @@
 # Read Qlik Sense .qvd files
 
+
+## Install
+Install from PyPi https://pypi.org/project/qvd/
+```pip install qvd```
+
 ## Usage
 ```
 from qvd import reader
@@ -7,7 +12,7 @@ from qvd import reader
 df = reader.read('test.qvd')
 print(df)
 ```
-![example](example.png)
+![example](https://raw.githubusercontent.com/SBentley/qvd-utils/master/example.png)
 
 ### Developing
 Create a virtual env https://docs.python-guide.org/dev/virtualenvs/ and activate it.
