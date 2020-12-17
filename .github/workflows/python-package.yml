@@ -40,4 +40,5 @@ jobs:
         . bin/activate
         maturin develop
         deactivate
+        rm -r lib/
         pytest
