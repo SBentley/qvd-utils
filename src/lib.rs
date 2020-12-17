@@ -135,6 +135,7 @@ fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) 
     indexes
 }
 
+// Slow
 fn binary_to_u32(binary: Vec<u8>) -> u32 {
     let mut sum: u32 = 0;
     for bit in binary {
@@ -144,6 +145,7 @@ fn binary_to_u32(binary: Vec<u8>) -> u32 {
     sum
 }
 
+// Slow
 fn bitslice_to_vec(bitslice: &BitSlice<Msb0, u8>) -> Vec<u8> {
     let mut v: Vec<u8> = Vec::new();
     for bit in bitslice {
