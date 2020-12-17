@@ -1,5 +1,5 @@
 # Read Qlik Sense .qvd files
-![Rust](https://github.com/SBentley/qvd-utils/workflows/Rust/badge.svg)
+![Rust](https://github.com/SBentley/qvd-utils/workflows/Rust/badge.svg) ![Python package](https://github.com/SBentley/qvd-utils/workflows/Python%20package/badge.svg)
 
 ## Install
 Install from PyPi https://pypi.org/project/qvd/
