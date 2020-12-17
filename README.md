@@ -17,6 +17,6 @@ print(df)
 ### Developing
 Create a virtual env https://docs.python-guide.org/dev/virtualenvs/ and activate it.
 
-Install maturin
+Install maturin via pip
 
-run ```maturin develop``` to install python lib to the virtual env.
+run ```maturin develop --release``` to install the generated python lib to the virtual env.
