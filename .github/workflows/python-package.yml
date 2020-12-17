@@ -39,4 +39,5 @@ jobs:
         python -m venv .
         . bin/activate
         maturin develop
+        deactivate
         pytest
