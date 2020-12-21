@@ -12,4 +12,6 @@ class TestQvdReader():
     def test_read_size(self):
         qvd = qvd_reader.read('AAPL.qvd')
         csv = pd.read_csv('AAPL.csv', float_precision='round_trip')
+        print(qvd.columns)
+        print(csv.columns)
         assert numpy.array_equal(qvd.columns, csv.columns)
