@@ -39,9 +39,3 @@ pub struct QvdFieldHeader {
     #[serde(rename = "Bias")]
     pub bias: i32,
 }
-
-#[derive(Debug)]
-pub enum QlikType {
-    Strings(Vec<Option<String>>),
-    Numbers(Vec<Option<f64>>),
-}

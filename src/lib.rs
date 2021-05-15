@@ -1,15 +1,14 @@
 use bitvec::prelude::*;
-use byteorder::{LittleEndian, ReadBytesExt};
 use pyo3::wrap_pyfunction;
 use pyo3::{prelude::*, types::PyDict};
 use quick_xml::de::from_str;
-use qvd_structure::{QlikType, QvdFieldHeader, QvdTableHeader};
-use std::io::prelude::*;
+use qvd_structure::{QvdFieldHeader, QvdTableHeader};
 use std::io::SeekFrom;
 use std::io::{self, Read};
 use std::path::Path;
 use std::str;
 use std::{collections::HashMap, fs::File};
+use std::{convert::TryInto, io::prelude::*};
 pub mod qvd_structure;
 
 #[pymodule]
@@ -26,7 +25,7 @@ fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
     let binary_section_offset = xml.as_bytes().len();
 
     let qvd_structure: QvdTableHeader = from_str(&xml).unwrap();
-    let mut symbol_map: HashMap<String, QlikType> = HashMap::new();
+    let mut symbol_map: HashMap<String, Vec<Option<String>>> = HashMap::new();
 
     if let Ok(mut f) = File::open(&file_name) {
         // Seek to the end of the XML section
@@ -40,84 +39,96 @@ fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
         let record_byte_size = qvd_structure.record_byte_size;
 
         for field in qvd_structure.fields.headers {
-            symbol_map.insert(field.field_name.clone(), get_symbols(&buf, &field));
-            let pointers = get_row_indexes(&rows_section, &field, record_byte_size);
-            let column = match_symbols_with_pointer(&symbol_map[&field.field_name], &pointers);
-            match column {
-                QlikType::Strings(v) => {
-                    dict.set_item(field.field_name, v).unwrap();
-                }
-                QlikType::Numbers(v) => {
-                    dict.set_item(field.field_name, v).unwrap();
-                }
-            }
+            symbol_map.insert(
+                field.field_name.clone(),
+                get_symbols_as_strings(&buf, &field),
+            );
+            let symbol_indexes = get_row_indexes(&rows_section, &field, record_byte_size);
+            let column =
+                match_symbols_with_indexes(&symbol_map[&field.field_name], &symbol_indexes);
+            dict.set_item(field.field_name, column).unwrap();
         }
     }
     Ok(dict.into())
 }
 
-fn match_symbols_with_pointer(symbol: &QlikType, pointers: &Vec<i64>) -> QlikType {
-    match symbol {
-        QlikType::Strings(symbols) => {
-            let mut cols: Vec<Option<String>> = Vec::new();
-            for pointer in pointers {
-                if symbols.len() == 0 {
-                    continue;
-                } else if *pointer < 0 {
-                    cols.push(None);
-                } else {
-                    cols.push(symbols[*pointer as usize].clone());
-                }
-            }
-            return QlikType::Strings(cols);
-        }
-        QlikType::Numbers(symbols) => {
-            let mut cols: Vec<Option<f64>> = Vec::new();
-            for pointer in pointers {
-                if symbols.len() == 0 {
-                    continue;
-                } else if *pointer < 0 {
-                    cols.push(None);
-                } else {
-                    cols.push(symbols[*pointer as usize]);
-                }
-            }
-            return QlikType::Numbers(cols);
+fn match_symbols_with_indexes(
+    symbols: &Vec<Option<String>>,
+    pointers: &Vec<i64>,
+) -> Vec<Option<String>> {
+    let mut cols: Vec<Option<String>> = Vec::new();
+    for pointer in pointers.iter() {
+        if symbols.len() == 0 {
+            continue;
+        } else if *pointer < 0 {
+            cols.push(None);
+        } else {
+            cols.push(symbols[*pointer as usize].clone());
         }
     }
+    return cols;
 }
 
-fn get_symbols(buf: &[u8], field: &QvdFieldHeader) -> QlikType {
+fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<String>> {
     let start = field.offset;
     let end = start + field.length;
-    match buf[start] {
-        4 | 5 | 6 => {
-            if field.length > 0 {
-                QlikType::Strings(retrieve_string_symbols(&buf[start..end]))
-            } else {
-                let mut none_vec: Vec<Option<String>> = Vec::new();
-                none_vec.push(None);
-                QlikType::Strings(none_vec)
+    let mut current_string = String::new();
+    let mut strings: Vec<Option<String>> = Vec::new();
+
+    let mut i = start;
+    while i < end {
+        let byte = &buf[i];
+        // Check first byte of symbol. This is not part of the symbol but tells us what type of data to read.
+        match byte {
+            // Strings are null terminated
+            0 => {
+                strings.push(Some(current_string.clone()));
+                current_string.clear();
+                i += 1;
             }
-        }
-        1 | 2 => {
-            if field.length > 0 {
-                QlikType::Numbers(retrieve_number_symbols(&buf[start..end]))
-            } else {
-                let mut none_vec: Vec<Option<f64>> = Vec::new();
-                none_vec.push(None);
-                QlikType::Numbers(none_vec)
+            1 => {
+                // 4 byte integer
+                let target_bytes = buf[i+1..i + 5].to_vec();
+                let byte_array: [u8; 4] = target_bytes.try_into().unwrap();
+                let numeric_value = i32::from_le_bytes(byte_array);
+                strings.push(Some(numeric_value.to_string()));
+                i += 5;
             }
-        }
-        _ => {
-            let mut v: Vec<Option<String>> = Vec::new();
-            //TODO: remove null string
-            v.push(None);
-            QlikType::Strings(v)
+            2 => {
+                // 4 byte double
+                let target_bytes = buf[i + 1..i + 9].to_vec();
+                let byte_array: [u8; 8] = target_bytes.try_into().unwrap();
+                let numeric_value = f64::from_le_bytes(byte_array);
+                strings.push(Some(numeric_value.to_string()));
+                i += 9;
+            }
+            4 | b'\r' | b'\n' => {
+                i += 1;
+            } // Beginning of a null terminated string
+            5 => {
+                // 4 bytes of unknown followed by null terminated string
+                // Skip the 4 bytes before string
+                i += 5;
+                continue;
+            }
+            6 => {
+                // 8 bytes of unknown followed by null terminated string
+                // Skip the 8 bytes before string
+                i += 9;
+                continue;
+            }
+            _ => {
+                // Part of a string
+                let c = *byte as char;
+                current_string.push(c);
+                i += 1;
+            }
         }
     }
+    strings
 }
 
+// Retrieve bit stuffed data. Each row has index to value from symbol map.
 fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) -> Vec<i64> {
     let mut cloned_buf = buf.clone().to_owned();
     let chunks = cloned_buf.chunks_mut(record_byte_size);
@@ -175,66 +186,6 @@ fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
     }
 }
 
-fn retrieve_string_symbols(buf: &[u8]) -> Vec<Option<String>> {
-    let mut current_string = String::new();
-    let mut strings: Vec<Option<String>> = Vec::new();
-
-    let mut i = 0;
-    while i < buf.len() {
-        let byte = &buf[i];
-        match byte {
-            // Strings are null terminated
-            0 => {
-                strings.push(Some(current_string.clone()));
-                current_string.clear();
-            }
-            4 | b'\r' | b'\n' => (),
-            5 => {
-                // Skip the 4 bytes before string
-                i += 5;
-                continue;
-            }
-            6 => {
-                // Skip the 8 bytes before string
-                i += 9;
-                continue;
-            }
-            _ => {
-                let c = *byte as char;
-                current_string.push(c);
-            }
-        }
-        i += 1;
-    }
-    strings
-}
-
-pub fn retrieve_number_symbols(buf: &[u8]) -> Vec<Option<f64>> {
-    let mut numbers: Vec<Option<f64>> = Vec::new();
-    let mut i = 0;
-    while i < buf.len() {
-        let byte = &buf[i];
-        match byte {
-            1 => {
-                let mut x = &buf[i + 1..i + 5];
-                let value = x.read_i32::<LittleEndian>().unwrap();
-                numbers.push(Some(value as f64));
-                i += 5;
-            }
-            2 => {
-                let mut x = &buf[i + 1..i + 9];
-                let value = x.read_f64::<LittleEndian>().unwrap();
-                numbers.push(Some(value));
-                i += 9;
-            }
-            _ => {
-                panic!("unexpected char at offset {} double", i);
-            }
-        }
-    }
-    numbers
-}
-
 fn read_file<P>(filename: P) -> io::Result<io::BufReader<File>>
 where
     P: AsRef<Path>,
@@ -253,16 +204,32 @@ mod tests {
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x7a, 0x40, 0x02, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x50, 0x7a, 0x40,
         ];
-        let res = retrieve_number_symbols(&buf);
-        let expected: Vec<Option<f64>> = vec![Some(420.0), Some(421.0)];
+        let field = QvdFieldHeader {
+            length: buf.len(),
+            offset: 0,
+            field_name: String::new(),
+            bias: 0,
+            bit_offset: 0,
+            bit_width: 0,
+        };
+        let res = get_symbols_as_strings(&buf, &field);
+        let expected: Vec<Option<String>> = vec![Some(420.0.to_string()), Some(421.0.to_string())];
         assert_eq!(expected, res);
     }
 
     #[test]
     fn test_int() {
         let buf: Vec<u8> = vec![0x01, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x14, 0x00, 0x00, 0x00];
-        let res = retrieve_number_symbols(&buf);
-        let expected = vec![Some(10.0), Some(20.0)];
+        let field = QvdFieldHeader {
+            length: buf.len(),
+            offset: 0,
+            field_name: String::new(),
+            bias: 0,
+            bit_offset: 0,
+            bit_width: 0,
+        };
+        let res = get_symbols_as_strings(&buf, &field);
+        let expected = vec![Some(10.0.to_string()), Some(20.0.to_string())];
         assert_eq!(expected, res);
     }
 
@@ -272,8 +239,21 @@ mod tests {
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x7a, 0x40, 0x02, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x50, 0x7a, 0x40, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00,
         ];
-        let res = retrieve_number_symbols(&buf);
-        let expected: Vec<Option<f64>> = vec![Some(420.0), Some(421.0), Some(1.0), Some(2.0)];
+        let field = QvdFieldHeader {
+            length: buf.len(),
+            offset: 0,
+            field_name: String::new(),
+            bias: 0,
+            bit_offset: 0,
+            bit_width: 0,
+        };
+        let res = get_symbols_as_strings(&buf, &field);
+        let expected: Vec<Option<String>> = vec![
+            Some(420.0.to_string()),
+            Some(421.0.to_string()),
+            Some(1.0.to_string()),
+            Some(2.0.to_string()),
+        ];
         assert_eq!(expected, res);
     }
 
@@ -283,7 +263,15 @@ mod tests {
             4, 101, 120, 97, 109, 112, 108, 101, 32, 116, 101, 120, 116, 0, 4, 114, 117, 115, 116,
             0,
         ];
-        let res = retrieve_string_symbols(&buf);
+        let field = QvdFieldHeader {
+            length: buf.len(),
+            offset: 0,
+            field_name: String::new(),
+            bias: 0,
+            bit_offset: 0,
+            bit_width: 0,
+        };
+        let res = get_symbols_as_strings(&buf, &field);
         let expected = vec![Some("example text".into()), Some("rust".into())];
         assert_eq!(expected, res);
     }
@@ -295,7 +283,15 @@ mod tests {
             0, 5, 42, 65, 80, 1, 49, 50, 51, 52, 0, 6, 1, 1, 1, 1, 1, 1, 1, 1, 100, 111, 117, 98,
             108, 101, 0,
         ];
-        let res = retrieve_string_symbols(&buf);
+        let field = QvdFieldHeader {
+            length: buf.len(),
+            offset: 0,
+            field_name: String::new(),
+            bias: 0,
+            bit_offset: 0,
+            bit_width: 0,
+        };
+        let res = get_symbols_as_strings(&buf, &field);
         let expected = vec![
             Some("example text".into()),
             Some("rust".into()),
