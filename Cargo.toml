@@ -5,6 +5,7 @@ authors = ["Sam Bentley <samtbentley@gmail.com>"]
 edition = "2018"
 readme = "README.md"
 description = "A library for reading Qlik Sense .qvd file format from Python, written in Rust."
+license = "Apache-2.0"
 
 [lib]
 name = "qvd"
