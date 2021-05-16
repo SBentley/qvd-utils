@@ -1,5 +1,6 @@
 # Read Qlik Sense .qvd files 🛠
 ![Rust](https://github.com/SBentley/qvd-utils/workflows/Rust/badge.svg) ![Python package](https://github.com/SBentley/qvd-utils/workflows/Python%20package/badge.svg)
+
 A python library for reading Qlik Sense .qvd file format, written in Rust. Files can be read to DataFrame or dictionary.
 
 ## Install
