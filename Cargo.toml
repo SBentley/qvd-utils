@@ -6,6 +6,9 @@ edition = "2018"
 readme = "README.md"
 description = "A library for reading Qlik Sense .qvd file format from Python, written in Rust."
 license = "Apache-2.0"
+repository = "https://github.com/SBentley/qvd-utils"
+keywords = ["python", "rust", "qlik", "sense", "qvd"]
+
 
 [lib]
 name = "qvd"
@@ -15,7 +18,6 @@ crate-type = ["cdylib"]
 [dependencies]
 serde = { version = "1.0.117", features = ["derive"] }
 quick-xml = { version = "0.20.0", features = ["serialize"]}
-byteorder = "1.3.4"
 bitvec = "0.19.4"
 
 [dependencies.pyo3]
