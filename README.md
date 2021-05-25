@@ -12,7 +12,7 @@ Install from PyPi https://pypi.org/project/qvd/
 ```
 from qvd import qvd_reader
 
-df = reader.read('test.qvd')
+df = qvd_reader.read('test.qvd')
 print(df)
 ```
 ![example](https://raw.githubusercontent.com/SBentley/qvd-utils/master/example.png)
