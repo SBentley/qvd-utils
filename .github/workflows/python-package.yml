@@ -51,6 +51,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
+    steps:
     - uses: actions/checkout@v2
     - name: Set up Python 
       uses: actions/setup-python@v2
@@ -75,7 +76,7 @@ jobs:
       run: find ./target/wheels/
 
     - name: PyPi publish        
-        env:
-          MATURIN_PASSWORD: ${{ secrets.PYPI }}
+      env:
+        MATURIN_PASSWORD: ${{ secrets.PYPI }}
         run: maturin publish --username Yeltneb
         
