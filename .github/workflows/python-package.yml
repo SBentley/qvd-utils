@@ -78,5 +78,5 @@ jobs:
     - name: PyPi publish        
       env:
         MATURIN_PASSWORD: ${{ secrets.PYPI }}
-        run: maturin publish --username Yeltneb
+      run: maturin publish --username Yeltneb
         
