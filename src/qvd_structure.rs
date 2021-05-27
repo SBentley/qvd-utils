@@ -1,4 +1,3 @@
-// pub mod qvd_structure {
 use serde;
 use serde::Deserialize;
 #[derive(Debug, Deserialize)]
