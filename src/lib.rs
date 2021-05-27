@@ -72,7 +72,7 @@ fn match_symbols_with_indexes(
 fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<String>> {
     let start = field.offset;
     let end = start + field.length;
-    let mut current_string = String::new();
+    let mut string_start: usize = 0;
     let mut strings: Vec<Option<String>> = Vec::new();
 
     let mut i = start;
@@ -80,15 +80,20 @@ fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<Stri
         let byte = &buf[i];
         // Check first byte of symbol. This is not part of the symbol but tells us what type of data to read.
         match byte {
-            // Strings are null terminated
             0 => {
-                strings.push(Some(current_string.clone()));
-                current_string.clear();
+                // Strings are null terminated
+                // Read bytes from start fo string (string_start) up to current byte.
+                let utf8_bytes = buf[string_start..i].to_vec().to_owned();
+                let value = String::from_utf8(utf8_bytes).expect(&format!(
+                    "Error parsing string value in field: {}, field offset: {}, byte offset: {}",
+                    field.field_name, start, i
+                ));
+                strings.push(Some(value));
                 i += 1;
             }
             1 => {
                 // 4 byte integer
-                let target_bytes = buf[i+1..i + 5].to_vec();
+                let target_bytes = buf[i + 1..i + 5].to_vec();
                 let byte_array: [u8; 4] = target_bytes.try_into().unwrap();
                 let numeric_value = i32::from_le_bytes(byte_array);
                 strings.push(Some(numeric_value.to_string()));
@@ -102,25 +107,26 @@ fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<Stri
                 strings.push(Some(numeric_value.to_string()));
                 i += 9;
             }
-            4 | b'\r' | b'\n' => {
+            4 => {
+                // Beginning of a null terminated string type
+                // Mark where string value starts, excluding preceding byte 0x04
                 i += 1;
-            } // Beginning of a null terminated string
+                string_start = i;
+            }
             5 => {
                 // 4 bytes of unknown followed by null terminated string
                 // Skip the 4 bytes before string
                 i += 5;
-                continue;
+                string_start = i;
             }
             6 => {
                 // 8 bytes of unknown followed by null terminated string
                 // Skip the 8 bytes before string
                 i += 9;
-                continue;
+                string_start = i;
             }
             _ => {
-                // Part of a string
-                let c = *byte as char;
-                current_string.push(c);
+                // Part of a string, do nothing until null terminator
                 i += 1;
             }
         }
@@ -234,6 +240,7 @@ mod tests {
     }
 
     #[test]
+    #[rustfmt::skip]
     fn test_mixed_numbers() {
         let buf: Vec<u8> = vec![
             0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x7a, 0x40, 
@@ -279,6 +286,28 @@ mod tests {
         };
         let res = get_symbols_as_strings(&buf, &field);
         let expected = vec![Some("example text".into()), Some("rust".into())];
+        assert_eq!(expected, res);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_utf8_string() {
+        let buf: Vec<u8> = vec![
+            0x04, 0xE4, 0xB9, 0x9F, 0xE6, 0x9C, 0x89, 0xE4, 0xB8, 0xAD, 0xE6, 0x96, 0x87, 0xE7,
+            0xAE, 0x80, 0xE4, 0xBD, 0x93, 0xE5, 0xAD, 0x97, 0x00,
+            0x04, 0xF0, 0x9F, 0x90, 0x8D, 0xF0, 0x9F, 0xA6, 0x80, 0x00,
+        ];
+
+        let field = QvdFieldHeader {
+            length: buf.len(),
+            offset: 0,
+            field_name: String::new(),
+            bias: 0,
+            bit_offset: 0,
+            bit_width: 0,
+        };
+        let res = get_symbols_as_strings(&buf, &field);
+        let expected = vec![Some("也有中文简体字".into()), Some("🐍🦀".into())];
         assert_eq!(expected, res);
     }
 
