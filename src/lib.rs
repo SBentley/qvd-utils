@@ -19,7 +19,7 @@ fn qvd(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
+fn read_qvd(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
     let xml: String = get_xml_data(&file_name).expect("Error reading file");
     let dict = PyDict::new(py);
     let binary_section_offset = xml.as_bytes().len();
@@ -53,12 +53,12 @@ fn read_qvd<'a>(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
 }
 
 fn match_symbols_with_indexes(
-    symbols: &Vec<Option<String>>,
-    pointers: &Vec<i64>,
+    symbols: &[Option<String>],
+    pointers: &[i64],
 ) -> Vec<Option<String>> {
     let mut cols: Vec<Option<String>> = Vec::new();
     for pointer in pointers.iter() {
-        if symbols.len() == 0 {
+        if symbols.is_empty(){
             continue;
         } else if *pointer < 0 {
             cols.push(None);
@@ -66,7 +66,7 @@ fn match_symbols_with_indexes(
             cols.push(symbols[*pointer as usize].clone());
         }
     }
-    return cols;
+    cols
 }
 
 fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<String>> {
@@ -84,7 +84,7 @@ fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<Stri
                 // Strings are null terminated
                 // Read bytes from start fo string (string_start) up to current byte.
                 let utf8_bytes = buf[string_start..i].to_vec().to_owned();
-                let value = String::from_utf8(utf8_bytes).expect(&format!(
+                let value = String::from_utf8(utf8_bytes).unwrap_or_else(|_| panic!(
                     "Error parsing string value in field: {}, field offset: {}, byte offset: {}",
                     field.field_name, start, i
                 ));
@@ -136,7 +136,7 @@ fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<Stri
 
 // Retrieve bit stuffed data. Each row has index to value from symbol map.
 fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) -> Vec<i64> {
-    let mut cloned_buf = buf.clone().to_owned();
+    let mut cloned_buf = buf.to_owned();
     let chunks = cloned_buf.chunks_mut(record_byte_size);
     let mut indexes: Vec<i64> = Vec::new();
     for chunk in chunks {
@@ -175,8 +175,8 @@ fn bitslice_to_vec(bitslice: &BitSlice<Msb0, u8>) -> Vec<u8> {
     v
 }
 
-fn get_xml_data(file_name: &String) -> Result<String, io::Error> {
-    match read_file(&file_name) {
+fn get_xml_data(file_name: &str) -> Result<String, io::Error> {
+    match read_file(file_name) {
         Ok(mut reader) => {
             let mut buffer = Vec::new();
             // There is a line break, carriage return and a null terminator between the XMl and data

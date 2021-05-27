@@ -1,4 +1,3 @@
-use serde;
 use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct QvdTableHeader {
