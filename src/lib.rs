@@ -27,12 +27,9 @@ fn read_qvd(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
     let qvd_structure: QvdTableHeader = from_str(&xml).unwrap();
     let mut symbol_map: HashMap<String, Vec<Option<String>>> = HashMap::new();
 
-    if let Ok(mut f) = File::open(&file_name) {
+    if let Ok(f) = File::open(&file_name) {
         // Seek to the end of the XML section
-        f.seek(SeekFrom::Start(binary_section_offset as u64))
-            .unwrap();
-        let mut buf: Vec<u8> = Vec::new();
-        f.read_to_end(&mut buf).unwrap();
+        let buf = read_qvd_to_buf(f, binary_section_offset);
         let rows_start = qvd_structure.offset;
         let rows_end = buf.len();
         let rows_section = &buf[rows_start..rows_end];
@@ -44,23 +41,26 @@ fn read_qvd(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
                 get_symbols_as_strings(&buf, &field),
             );
             let symbol_indexes = get_row_indexes(&rows_section, &field, record_byte_size);
-            let column =
+            let column_values =
                 match_symbols_with_indexes(&symbol_map[&field.field_name], &symbol_indexes);
-            dict.set_item(field.field_name, column).unwrap();
+            dict.set_item(field.field_name, column_values).unwrap();
         }
     }
     Ok(dict.into())
 }
 
-fn match_symbols_with_indexes(
-    symbols: &[Option<String>],
-    pointers: &[i64],
-) -> Vec<Option<String>> {
+fn read_qvd_to_buf(mut f: File, binary_section_offset: usize) -> Vec<u8> {
+    f.seek(SeekFrom::Start(binary_section_offset as u64))
+        .unwrap();
+    let mut buf: Vec<u8> = Vec::new();
+    f.read_to_end(&mut buf).unwrap();
+    buf
+}
+
+fn match_symbols_with_indexes(symbols: &[Option<String>], pointers: &[i64]) -> Vec<Option<String>> {
     let mut cols: Vec<Option<String>> = Vec::new();
     for pointer in pointers.iter() {
-        if symbols.is_empty(){
-            continue;
-        } else if *pointer < 0 {
+        if symbols.is_empty() || *pointer < 0 {
             cols.push(None);
         } else {
             cols.push(symbols[*pointer as usize].clone());
@@ -84,10 +84,12 @@ fn get_symbols_as_strings(buf: &[u8], field: &QvdFieldHeader) -> Vec<Option<Stri
                 // Strings are null terminated
                 // Read bytes from start fo string (string_start) up to current byte.
                 let utf8_bytes = buf[string_start..i].to_vec().to_owned();
-                let value = String::from_utf8(utf8_bytes).unwrap_or_else(|_| panic!(
+                let value = String::from_utf8(utf8_bytes).unwrap_or_else(|_| {
+                    panic!(
                     "Error parsing string value in field: {}, field offset: {}, byte offset: {}",
                     field.field_name, start, i
-                ));
+                )
+                });
                 strings.push(Some(value));
                 i += 1;
             }
