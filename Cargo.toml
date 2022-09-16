@@ -1,6 +1,6 @@
 [package]
 name = "qvd"
-version = "0.0.13"
+version = "0.0.14"
 authors = ["Sam Bentley <samtbentley@gmail.com>"]
 edition = "2018"
 readme = "README.md"
