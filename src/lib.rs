@@ -154,24 +154,18 @@ fn get_row_indexes(buf: &[u8], field: &QvdFieldHeader, record_byte_size: usize) 
     indexes
 }
 
-// Slow
 fn binary_to_u32(binary: Vec<u8>) -> u32 {
     let mut sum: u32 = 0;
     for bit in binary {
-        sum <<= 1;
-        sum += bit as u32;
+        sum = (sum << 1) | (bit as u32);
     }
     sum
 }
 
-// Slow
 fn bitslice_to_vec(bitslice: &BitSlice<Msb0, u8>) -> Vec<u8> {
-    let mut v: Vec<u8> = Vec::new();
-    for bit in bitslice {
-        let val = match bit {
-            true => 1,
-            false => 0,
-        };
+    let mut v: Vec<u8> = Vec::with_capacity(bitslice.len());
+    for bit in bitslice.iter() {
+        let val = if *bit { 1 } else { 0 };
         v.push(val);
     }
     v
