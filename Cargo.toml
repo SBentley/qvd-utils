@@ -24,5 +24,3 @@ bitvec = "0.19.4"
 version = "0.12.3"
 features = ["extension-module"]
 
-[package.metadata.maturin]
-requires-dist = ["pandas>=1.1.4"]
