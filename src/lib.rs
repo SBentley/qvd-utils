@@ -4,7 +4,7 @@ use pyo3::{prelude::*, types::PyDict};
 use quick_xml::de::from_str;
 use qvd_structure::{QvdFieldHeader, QvdTableHeader};
 use std::io::SeekFrom;
-use std::io::{self, Read};
+use std::io::{self, Read, Cursor};
 use std::path::Path;
 use std::str;
 use std::{collections::HashMap, fs::File};
@@ -14,6 +14,7 @@ pub mod qvd_structure;
 #[pymodule]
 fn qvd(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_qvd, m)?)?;
+    m.add_function(wrap_pyfunction!(read_qvd_from_buffer, m)?)?;
 
     Ok(())
 }
@@ -48,6 +49,36 @@ fn read_qvd(py: Python, file_name: String) -> PyResult<Py<PyDict>> {
     }
     Ok(dict.into())
 }
+
+#[pyfunction]
+fn read_qvd_from_buffer(py: Python, input_buffer: Vec<u8>) -> PyResult<Py<PyDict>> {
+    let xml: String = get_xml_data_from_raw_data(&input_buffer).expect("Error reading qvd data");
+    let dict = PyDict::new(py);
+    let binary_section_offset = xml.as_bytes().len();
+
+    let qvd_structure: QvdTableHeader = from_str(&xml).unwrap();
+    let mut symbol_map: HashMap<String, Vec<Option<String>>> = HashMap::new();
+
+    // Seek to the end of the XML section
+    let buf = &input_buffer[binary_section_offset..];
+    let rows_start = qvd_structure.offset;
+    let rows_end = buf.len();
+    let rows_section = &buf[rows_start..rows_end];
+    let record_byte_size = qvd_structure.record_byte_size;
+
+    for field in qvd_structure.fields.headers {
+        symbol_map.insert(
+            field.field_name.clone(),
+            get_symbols_as_strings(&buf, &field),
+        );
+        let symbol_indexes = get_row_indexes(&rows_section, &field, record_byte_size);
+        let column_values =
+            match_symbols_with_indexes(&symbol_map[&field.field_name], &symbol_indexes);
+        dict.set_item(field.field_name, column_values).unwrap();
+    }
+    Ok(dict.into())
+}
+
 
 fn read_qvd_to_buf(mut f: File, binary_section_offset: usize) -> Vec<u8> {
     f.seek(SeekFrom::Start(binary_section_offset as u64))
@@ -177,22 +208,32 @@ fn bitslice_to_vec(bitslice: &BitSlice<Msb0, u8>) -> Vec<u8> {
     v
 }
 
+fn extract_xml_data(reader: &mut dyn io::BufRead) -> Result<String, io::Error> {
+    let mut buffer = Vec::new();
+    // There is a line break, carriage return and a null terminator between the XML and data
+    // Find the null terminator
+    reader
+        .read_until(0, &mut buffer)
+        .expect("Failed to find null terminator in QVD");
+    let xml_string =
+                str::from_utf8(&buffer[..]).expect("xml section contains invalid UTF-8 chars");
+    Ok(xml_string.to_owned())
+}
+
 fn get_xml_data(file_name: &str) -> Result<String, io::Error> {
     match read_file(file_name) {
         Ok(mut reader) => {
-            let mut buffer = Vec::new();
-            // There is a line break, carriage return and a null terminator between the XMl and data
-            // Find the null terminator
-            reader
-                .read_until(0, &mut buffer)
-                .expect("Failed to read file");
-            let xml_string =
-                str::from_utf8(&buffer[..]).expect("xml section contains invalid UTF-8 chars");
-            Ok(xml_string.to_owned())
+            extract_xml_data(&mut reader)
         }
         Err(e) => Err(e),
     }
 }
+
+fn get_xml_data_from_raw_data(raw_data: &Vec<u8>) -> Result<String, io::Error> {
+    let mut cursor = Cursor::new(raw_data);
+    extract_xml_data(&mut cursor)
+}
+
 
 fn read_file<P>(filename: P) -> io::Result<io::BufReader<File>>
 where

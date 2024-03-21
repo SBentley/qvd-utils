@@ -14,3 +14,11 @@ class TestQvdReader():
         qvd = qvd_reader.read(f'{os.path.dirname(__file__)}/test_files/AAPL.qvd')
         csv = pd.read_csv(f'{os.path.dirname(__file__)}/test_files/AAPL.csv', float_precision='round_trip')
         assert np.array_equal(np.sort(qvd.columns, axis=0), np.sort(csv.columns, axis=0))
+
+    def test_qvd_from_in_memory(self):
+        with open(f'{os.path.dirname(__file__)}/test_files/AAPL.qvd', 'rb') as fin:
+            qvd = qvd_reader.read(fin)
+        csv = pd.read_csv(f'{os.path.dirname(__file__)}/test_files/AAPL.csv', float_precision='round_trip')
+        assert qvd.shape == csv.shape
+        assert np.array_equal(np.sort(qvd.columns, axis=0), np.sort(csv.columns, axis=0))
+
